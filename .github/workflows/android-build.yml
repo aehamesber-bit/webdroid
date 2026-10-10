@@ -20,6 +20,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Use Maven AAPT2 on GitHub runner
+        run: sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Upload APK
