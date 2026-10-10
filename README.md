@@ -23,6 +23,8 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ### 2. Launch
 
+On first launch, tap **Grant display-over-apps permission** and allow WebDroid in Android Settings. The app starts its browser services after you return. Keep the startup screen open until it reports that WebDroid is running.
+
 ```bash
 adb shell am start -n io.github.takafu.webdroid/.BrowserActivity
 ```
@@ -110,13 +112,14 @@ WebView (floating overlay)
 ## Requirements
 
 - Android 8.0+ (for overlay permissions)
+- Allow WebDroid to display over other apps (required for the floating browser)
 - Termux with ADB access
 - Display over other apps permission
 
 ## Tech Stack
 
 - Kotlin
-- Gradle 9.2.0
+- Gradle 8.9 (used by the GitHub Actions build)
 - NanoHTTPD 2.3.1
 - Gson 2.10.1
 - AndroidX WebKit

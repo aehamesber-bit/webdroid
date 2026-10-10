@@ -20,6 +20,7 @@ import android.graphics.drawable.ShapeDrawable
 import android.graphics.drawable.shapes.OvalShape
 import android.os.Build
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Base64
 import android.view.Gravity
 import android.view.MotionEvent
@@ -138,8 +139,15 @@ class FloatingBubbleService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+
+        if (!Settings.canDrawOverlays(this)) {
+            android.util.Log.e("FloatingBubble", "Overlay permission is missing; refusing to create windows")
+            stopSelf()
+            return
+        }
+
+        instance = this
 
         // Initialize WebView
         if (BrowserActivity.webView == null) {
