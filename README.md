@@ -144,7 +144,7 @@ arguments and reports connection / HTTP / invalid-JSON errors.
 | `browser_html` | Get page HTML |
 | `browser_execute <script>` | Run JavaScript (no return) |
 | `browser_eval <script>` | Run JavaScript and return result |
-| `browser_screenshot [file] [format] [quality]` | Save screenshot |
+| `browser_screenshot [file] [format] [quality] [scale] [max_width] [max_height]` | Save screenshot |
 | `browser_click <selector> [index] [timeout]` | Click a DOM element |
 | `browser_type <selector> <text> [clear] [timeout]` | Type into an input |
 | `browser_wait <selector> [state] [timeout]` | Wait for present/visible/hidden |

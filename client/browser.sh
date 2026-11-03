@@ -54,6 +54,53 @@ require_arg() {
     return 0
 }
 
+# Require a non-negative integer (safe for jq --argjson).
+require_unsigned_integer() {
+    local name="$1"; local value="$2"
+    case "$value" in
+        ''|*[!0-9]*)
+            echo "ERROR: $name must be a non-negative integer, got: $value" >&2
+            return 1 ;;
+    esac
+    return 0
+}
+
+# Require a numeric value (integers or decimals; safe for jq --argjson).
+require_number() {
+    local name="$1"; local value="$2"
+    case "$value" in
+        ''|*[!0-9.]*)
+            echo "ERROR: $name must be a number, got: $value" >&2
+            return 1 ;;
+    esac
+    return 0
+}
+
+# Require a boolean value (true/false; safe for jq --argjson).
+require_boolean() {
+    local name="$1"; local value="$2"
+    case "$value" in
+        true|false) return 0 ;;
+        *)
+            echo "ERROR: $name must be true or false, got: $value" >&2
+            return 1 ;;
+    esac
+}
+
+# Verify required external dependencies (jq, curl) are available.
+browser_require_deps() {
+    local missing=0
+    for cmd in jq curl; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "ERROR: required dependency '$cmd' is not installed. Install it and retry." >&2
+            missing=1
+        fi
+    done
+    return $missing
+}
+
+browser_require_deps || true
+
 # Return 0 if the response body is a successful JSON envelope.
 json_expect_success() {
     local body="$1"
@@ -157,7 +204,14 @@ browser_screenshot() {
     local output="${1:-screenshot.png}"
     local format="${2:-jpeg}"
     local quality="${3:-75}"
-    api_request GET "/screenshot?format=${format}&quality=${quality}" "" || { echo "ERROR: $RESPONSE_ERROR" >&2; return 1; }
+    local scale="${4:-1.0}"
+    local max_width="${5:-720}"
+    local max_height="${6:-1280}"
+    require_number "scale" "$scale" || return 1
+    require_unsigned_integer "quality" "$quality" || return 1
+    require_unsigned_integer "max_width" "$max_width" || return 1
+    require_unsigned_integer "max_height" "$max_height" || return 1
+    api_request GET "/screenshot?format=${format}&quality=${quality}&scale=${scale}&max_width=${max_width}&max_height=${max_height}" "" || { echo "ERROR: $RESPONSE_ERROR" >&2; return 1; }
     if [ "$WEB_DROID_RAW" = "1" ]; then
         echo "$RESPONSE_BODY"
         return 0
@@ -187,6 +241,8 @@ browser_screenshot() {
 browser_click() {
     local selector="$1"; local index="${2:-0}"; local timeout="${3:-10000}"
     require_arg "selector" "$selector" || return 1
+    require_unsigned_integer "index" "$index" || return 1
+    require_unsigned_integer "timeout" "$timeout" || return 1
     local body
     body=$(jq -n --arg selector "$selector" --argjson index "$index" --argjson timeout "$timeout" '{selector:$selector,index:$index,timeout:$timeout}') \
         || { echo "ERROR: failed to build JSON" >&2; return 1; }
@@ -197,6 +253,8 @@ browser_type() {
     local selector="$1"; local text="$2"; local clear="${3:-false}"; local timeout="${4:-10000}"
     require_arg "selector" "$selector" || return 1
     require_arg "text" "$text" || return 1
+    require_boolean "clear" "$clear" || return 1
+    require_unsigned_integer "timeout" "$timeout" || return 1
     local body
     body=$(jq -n --arg selector "$selector" --arg text "$text" --argjson clear "$clear" --argjson timeout "$timeout" '{selector:$selector,text:$text,clear:$clear,timeout:$timeout}') \
         || { echo "ERROR: failed to build JSON" >&2; return 1; }
@@ -206,6 +264,7 @@ browser_type() {
 browser_wait() {
     local selector="$1"; local state="${2:-present}"; local timeout="${3:-10000}"
     require_arg "selector" "$selector" || return 1
+    require_unsigned_integer "timeout" "$timeout" || return 1
     local body
     body=$(jq -n --arg selector "$selector" --arg state "$state" --argjson timeout "$timeout" '{selector:$selector,state:$state,timeout:$timeout}') \
         || { echo "ERROR: failed to build JSON" >&2; return 1; }
@@ -215,6 +274,8 @@ browser_wait() {
 browser_find() {
     local selector="$1"; local all="${2:-false}"; local limit="${3:-50}"
     require_arg "selector" "$selector" || return 1
+    require_boolean "all" "$all" || return 1
+    require_unsigned_integer "limit" "$limit" || return 1
     local body
     body=$(jq -n --arg selector "$selector" --argjson all "$all" --argjson limit "$limit" '{selector:$selector,all:$all,limit:$limit}') \
         || { echo "ERROR: failed to build JSON" >&2; return 1; }
@@ -225,6 +286,8 @@ browser_extract() {
     local selector="$1"; local fields="$2"; local all="${3:-false}"; local limit="${4:-50}"
     require_arg "selector" "$selector" || return 1
     require_arg "fields" "$fields" || return 1
+    require_boolean "all" "$all" || return 1
+    require_unsigned_integer "limit" "$limit" || return 1
     # Validate that fields is valid JSON.
     echo "$fields" | jq -e . >/dev/null 2>&1 || { echo "ERROR: 'fields' must be valid JSON" >&2; return 1; }
     local body
@@ -236,6 +299,7 @@ browser_extract() {
 browser_scroll() {
     local direction="$1"; local amount="${2:-300}"; local selector="${3:-}"
     require_arg "direction" "$direction" || return 1
+    require_unsigned_integer "amount" "$amount" || return 1
     local body
     if [ -n "$selector" ]; then
         body=$(jq -n --arg direction "$direction" --argjson amount "$amount" --arg selector "$selector" '{direction:$direction,amount:$amount,selector:$selector}') \
@@ -254,6 +318,7 @@ browser_scroll() {
 browser_links() {
     local limit="${1:-0}"
     local path="/links"
+    require_unsigned_integer "limit" "$limit" || return 1
     if [ "$limit" -gt 0 ] 2>/dev/null; then
         path="/links?limit=${limit}"
     fi
@@ -340,9 +405,10 @@ JavaScript:
   browser_eval <script>       Execute script and get result
 
 Screenshot:
-  browser_screenshot [file] [format] [quality]
-                              Save screenshot (default: screenshot.png, jpeg, 75)
-                              format: jpeg|png
+  browser_screenshot [file] [format] [quality] [scale] [max_width] [max_height]
+                               Save screenshot (default: screenshot.png, jpeg, 75, 1.0, 720, 1280)
+                               format: jpeg|png
+                               scale: 0.1-5.0   max_width/max_height: 1-2048
 
 DOM interaction:
   browser_click <selector> [index] [timeout]

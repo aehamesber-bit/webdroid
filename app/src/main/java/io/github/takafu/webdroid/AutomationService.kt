@@ -277,8 +277,8 @@ class AutomationService : Service() {
             val format = query["format"] ?: "jpeg"
             val quality = parseInt(query["quality"], 75).coerceIn(0, 100)
             val scale = parseFloat(query["scale"], 1.0f).coerceIn(0.1f, 5.0f)
-            val maxWidth = parseInt(query["max_width"], 720).coerceAtLeast(1)
-            val maxHeight = parseInt(query["max_height"], 1280).coerceAtLeast(1)
+            val maxWidth = parseInt(query["max_width"], 720).coerceIn(1, 2048)
+            val maxHeight = parseInt(query["max_height"], 1280).coerceIn(1, 2048)
 
             val options = ScreenshotOptions(format, quality, scale, maxWidth, maxHeight)
             val webView = BrowserActivity.webView

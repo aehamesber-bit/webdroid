@@ -65,8 +65,13 @@ class ScreenshotManager {
         var base64: String? = null
         try {
             val canvas = Canvas(bitmap)
-            val sx = target.first.toFloat() / width
-            val sy = target.second.toFloat() / height
+            // Scale the WebView content to the ACTUAL bitmap dimensions. When the
+            // target bitmap could not be allocated and a smaller fallback bitmap
+            // is used, scaling against `target` would draw content larger than the
+            // canvas and clip it. Use bitmap.width/height so Canvas and bitmap
+            // dimensions always match.
+            val sx = bitmap.width.toFloat() / width
+            val sy = bitmap.height.toFloat() / height
             canvas.scale(sx, sy)
             webView.draw(canvas)
 
@@ -79,8 +84,7 @@ class ScreenshotManager {
                     val q = max(0, min(100, options.quality))
                     bitmap.compress(Bitmap.CompressFormat.JPEG, q, stream)
                 }
-                val bytes = stream.toByteArray()
-                base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                base64 = Base64.encodeToString(stream.toByteArray(), Base64.NO_WRAP)
             } finally {
                 stream.close()
             }

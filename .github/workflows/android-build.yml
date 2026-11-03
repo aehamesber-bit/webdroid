@@ -14,7 +14,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # required to upload build artifacts
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,10 +28,11 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          api-level: 34
-          build-tools: 34.0.0
-          platform-tools: true
-          accept-licenses: true
+          packages: >-
+            platforms;android-34
+            build-tools;34.0.0
+            platform-tools
+          accept-android-sdk-licenses: true
 
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4

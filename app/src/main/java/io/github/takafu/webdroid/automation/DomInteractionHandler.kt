@@ -13,13 +13,28 @@ import kotlin.math.minOf
  */
 class DomInteractionHandler(private val manager: BrowserAutomationManager) {
 
+    /**
+     * Click the element at [index] matching [selector].
+     *
+     * Implementation detail: the click is performed with the browser's native
+     * [Element.click][https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/click].
+     * This is NOT a full user-interaction simulation: it does not move the mouse
+     * pointer, does not synthesize hover/pointer events, and may not be honored by
+     * custom input frameworks (e.g. some React controlled inputs) that listen only
+     * to synthetic `input`/`change` events. For such fields prefer [type].
+     * Callers should not rely on click() to reproduce every gesture a real user
+     * could perform.
+     */
     fun click(webView: WebView?, selector: String, index: Int, timeoutMs: Long): JsResult {
         if (webView == null) return JsResult.Error("WebView is not available")
         val params = mapOf("selector" to selector, "index" to max(0, index))
         val script = """
             (function() {
                 var p = $paramsJson;
-                var els = document.querySelectorAll(p.selector || "");
+                var els;
+                try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
+                    return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
+                }
                 if (!els || els.length === 0) {
                     return JSON.stringify({ok:false, error:{code:"ELEMENT_NOT_FOUND", message:"No element matched the supplied selector"}});
                 }
@@ -52,7 +67,10 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val script = """
             (function() {
                 var p = $paramsJson;
-                var els = document.querySelectorAll(p.selector || "");
+                var els;
+                try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
+                    return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
+                }
                 if (!els || els.length === 0) {
                     return JSON.stringify({ok:false, error:{code:"ELEMENT_NOT_FOUND", message:"No element matched the supplied selector"}});
                 }
@@ -101,6 +119,10 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
 
     fun wait(webView: WebView?, selector: String, state: String, timeoutMs: Long): JsResult {
         if (webView == null) return JsResult.Error("WebView is not available")
+        val validStates = setOf("present", "visible", "hidden")
+        if (!validStates.contains(state)) {
+            return JsResult.Error("Unsupported wait state '$state'. Supported states: ${validStates.sorted().joinToString(", ")}")
+        }
         val params = mapOf("selector" to selector, "state" to state)
         val checkScript = """
             (function() {
@@ -155,7 +177,10 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val script = """
             (function() {
                 var p = $paramsJson;
-                var els = document.querySelectorAll(p.selector || "");
+                var els;
+                try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
+                    return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
+                }
                 var results = [];
                 var count = p.all === true ? els.length : Math.min(1, els.length);
                 count = Math.min(count, p.limit);
