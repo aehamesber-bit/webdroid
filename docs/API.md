@@ -6,22 +6,41 @@
 
 ## Response Format
 
-### Success
+### Success (automation endpoints)
 ```json
 {
   "success": true,
-  "message": "Description",
-  "key": "value"
+  "data": { ... },
+  "error": null
 }
 ```
 
-### Error
+### Error (automation endpoints)
 ```json
 {
   "success": false,
-  "error": "Error message"
+  "data": null,
+  "error": { "code": "...", "message": "..." }
 }
 ```
+
+Legacy navigation/info endpoints keep the older `{"success": true, "message": "...", ...}` shape.
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_SELECTOR` | CSS selector could not be parsed |
+| `ELEMENT_NOT_FOUND` | No element matched the selector / index |
+| `ELEMENT_NOT_INTERACTABLE` | Element disabled, hidden, read-only, type=file, or off-screen |
+| `INVALID_PARAMETER` | Bad request parameter (state, direction, timeout, etc.) |
+| `TIMEOUT` | Operation did not complete within the deadline |
+| `WEBVIEW_UNAVAILABLE` | WebView not ready or not laid out |
+| `JAVASCRIPT_ERROR` | JavaScript threw or failed to schedule |
+| `SCREENSHOT_FAILED` | Bitmap allocation or encoding failed |
+| `REQUEST_INTERRUPTED` | Thread was interrupted while waiting |
+| `NOT_FOUND` | Unknown endpoint |
+| `MISSING_PARAMETER` | Required body parameter absent |
 
 ---
 

@@ -2,7 +2,7 @@ name: Build Android APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, "kilo/**"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -46,6 +46,11 @@ jobs:
 
       - name: Validate Gradle configuration
         run: gradle help --no-daemon
+
+      - name: Run shell client tests
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq jq >/dev/null 2>&1
+          bash tests/shell/test_client.sh
 
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon

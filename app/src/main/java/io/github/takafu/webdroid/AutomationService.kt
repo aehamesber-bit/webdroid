@@ -16,11 +16,17 @@ import android.os.Looper
 import android.util.Log
 import android.webkit.WebView
 import com.google.gson.Gson
+import com.google.gson.JsonSyntaxException
 import fi.iki.elonen.NanoHTTPD
 import io.github.takafu.webdroid.automation.*
 import java.io.IOException
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+
+sealed class BodyParseResult {
+    data class Success(val params: Map<String, Any>) : BodyParseResult()
+    object Invalid : BodyParseResult()
+}
 
 class AutomationService : Service() {
 
@@ -183,7 +189,7 @@ class AutomationService : Service() {
                 else -> newFixedLengthResponse(
                     Response.Status.NOT_FOUND,
                     "application/json",
-                    """{"error":"Not found"}"""
+                    """{"success":false,"error":{"code":"NOT_FOUND","message":"Endpoint not found"}}"""
                 )
             }
         }
@@ -193,10 +199,14 @@ class AutomationService : Service() {
         // ------------------------------------------------------------------
 
         private fun handleNavigate(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val url = params["url"] as? String
 
-            return if (url != null) {
+            return if (url != null && url.isNotBlank()) {
                 runOnMainThread {
                     BrowserActivity.webView?.loadUrl(url)
                 }
@@ -207,10 +217,14 @@ class AutomationService : Service() {
         }
 
         private fun handleExecute(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val script = params["script"] as? String
 
-            return if (script != null) {
+            return if (script != null && script.isNotBlank()) {
                 runOnMainThread {
                     BrowserActivity.webView?.evaluateJavascript(script, null)
                 }
@@ -221,18 +235,21 @@ class AutomationService : Service() {
         }
 
         // ------------------------------------------------------------------
-        // JavaScript evaluation with bounded CountDownLatch sync (replaces
-        // fragile Object.wait/notify).
+        // JavaScript evaluation with bounded CountDownLatch sync.
         // ------------------------------------------------------------------
 
         private fun handleEval(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val script = params["script"] as? String
             val timeout = parseTimeout(params, 5000L)
 
-            return if (script != null) {
+            return if (script != null && script.isNotBlank()) {
                 val result = automation.evalJson(BrowserActivity.webView, script, timeout)
-                jsResultToLegacyResponse(result, "Script executed")
+                jsResultToAutomationResponse(result)
             } else {
                 errorResponse("Missing 'script' parameter")
             }
@@ -242,7 +259,7 @@ class AutomationService : Service() {
             val webView = BrowserActivity.webView ?: return successResponse("about:blank", "url" to null)
             val result = automation.evalJson(webView, "location.href", 3000)
             return when (result) {
-                is JsResult.Error -> errorResponse("Timeout")
+                is JsResult.Error -> automationErr(jsErrorCodeToApiCode(result.code), result.message)
                 is JsResult.Value -> successResponse(result.value?.toString() ?: "about:blank", "url" to result.value)
                 is JsResult.Empty -> successResponse("about:blank", "url" to null)
             }
@@ -252,7 +269,7 @@ class AutomationService : Service() {
             val webView = BrowserActivity.webView ?: return successResponse("", "title" to null)
             val result = automation.evalJson(webView, "document.title", 3000)
             return when (result) {
-                is JsResult.Error -> errorResponse("Timeout")
+                is JsResult.Error -> automationErr(jsErrorCodeToApiCode(result.code), result.message)
                 is JsResult.Value -> successResponse(result.value?.toString() ?: "", "title" to result.value)
                 is JsResult.Empty -> successResponse("", "title" to null)
             }
@@ -262,7 +279,7 @@ class AutomationService : Service() {
             val webView = BrowserActivity.webView ?: return successResponse("HTML retrieved", "html" to null)
             val result = automation.evalJson(webView, "document.documentElement.outerHTML", 5000)
             return when (result) {
-                is JsResult.Error -> errorResponse("Timeout")
+                is JsResult.Error -> automationErr(jsErrorCodeToApiCode(result.code), result.message)
                 is JsResult.Value -> successResponse("HTML retrieved", "html" to result.value)
                 is JsResult.Empty -> successResponse("HTML retrieved", "html" to null)
             }
@@ -276,23 +293,35 @@ class AutomationService : Service() {
             val query = session.getParms()
             val format = query["format"] ?: "jpeg"
             val quality = parseInt(query["quality"], 75).coerceIn(0, 100)
-            val scale = parseFloat(query["scale"], 1.0f).coerceIn(0.1f, 5.0f)
+            val scale = parseFloat(query["scale"], 1.0f)
             val maxWidth = parseInt(query["max_width"], 720).coerceIn(1, 2048)
             val maxHeight = parseInt(query["max_height"], 1280).coerceIn(1, 2048)
+
+            if (scale.isNaN() || scale.isInfinite() || scale <= 0f) {
+                return automationErr("INVALID_PARAMETER", "Invalid scale: must be a positive finite number")
+            }
 
             val options = ScreenshotOptions(format, quality, scale, maxWidth, maxHeight)
             val webView = BrowserActivity.webView
 
-            var screenshot: String? = null
+            if (webView == null) {
+                return automationErr("WEBVIEW_UNAVAILABLE", "WebView is not available")
+            }
+
+            var screenshot: ScreenshotResult? = null
             var captureError: String? = null
             val latch = CountDownLatch(1)
 
             runOnMainThread {
                 try {
                     screenshot = screenshots.capture(webView, options)
-                    if (screenshot == null && webView != null) {
+                    if (screenshot == null) {
                         captureError = "Failed to capture screenshot"
                     }
+                } catch (e: IllegalArgumentException) {
+                    captureError = e.message ?: "Invalid screenshot options"
+                } catch (e: IllegalStateException) {
+                    captureError = e.message ?: "WebView not ready"
                 } catch (e: Exception) {
                     captureError = e.message ?: e.javaClass.simpleName
                     Log.e(TAG, "Screenshot failed", e)
@@ -313,10 +342,12 @@ class AutomationService : Service() {
             }
 
             return automationOk(mapOf(
-                "screenshot" to screenshot,
-                "format" to format,
-                "quality" to quality,
-                "dimensions" to mapOf("max_width" to maxWidth, "max_height" to maxHeight)
+                "screenshot" to screenshot.base64,
+                "format" to screenshot.format,
+                "quality" to screenshot.quality,
+                "dimensions" to mapOf("width" to screenshot.width, "height" to screenshot.height),
+                "size_bytes" to screenshot.sizeBytes,
+                "requested" to mapOf("max_width" to maxWidth, "max_height" to maxHeight)
             ))
         }
 
@@ -325,7 +356,11 @@ class AutomationService : Service() {
         // ------------------------------------------------------------------
 
         private fun handleClick(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val selector = params["selector"] as? String
             if (selector == null || selector.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
@@ -337,7 +372,11 @@ class AutomationService : Service() {
         }
 
         private fun handleType(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val selector = params["selector"] as? String
             if (selector == null || selector.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
@@ -350,7 +389,11 @@ class AutomationService : Service() {
         }
 
         private fun handleWait(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val selector = params["selector"] as? String
             if (selector == null || selector.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
@@ -362,7 +405,11 @@ class AutomationService : Service() {
         }
 
         private fun handleFind(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val selector = params["selector"] as? String
             if (selector == null || selector.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
@@ -375,7 +422,11 @@ class AutomationService : Service() {
         }
 
         private fun handleExtract(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val selector = params["selector"] as? String
             if (selector == null || selector.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
@@ -389,7 +440,11 @@ class AutomationService : Service() {
         }
 
         private fun handleScroll(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val direction = params["direction"] as? String
             if (direction == null || direction.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'direction' parameter")
@@ -407,9 +462,8 @@ class AutomationService : Service() {
 
         private fun handleLinks(session: IHTTPSession): Response {
             val query = session.getParms()
-            val limit = parseInt(query["limit"], 0).coerceAtLeast(0)
-            val timeout = 5000L
-            val result = pages.links(BrowserActivity.webView, limit, timeout)
+            val limit = parseInt(query["limit"], 0).coerceAtLeast(0).coerceAtMost(500)
+            val result = pages.links(BrowserActivity.webView, limit, 5000)
             return jsResultToAutomationResponse(result)
         }
 
@@ -511,9 +565,13 @@ class AutomationService : Service() {
         }
 
         private fun handleSetUaCustom(session: IHTTPSession): Response {
-            val params = parseBody(session)
+            val parse = parseBody(session)
+            if (parse is BodyParseResult.Invalid) {
+                return automationErr("INVALID_PARAMETER", "Invalid or missing JSON body", Response.Status.BAD_REQUEST)
+            }
+            val params = (parse as BodyParseResult.Success).params
             val ua = params["ua"] as? String
-            return if (ua != null) {
+            return if (ua != null && ua.isNotBlank()) {
                 FloatingBubbleService.setUaMode(FloatingBubbleService.UA_MODE_CUSTOM, ua)
                 successResponse("UA set to custom",
                     "mode" to FloatingBubbleService.UA_MODE_CUSTOM,
@@ -528,15 +586,26 @@ class AutomationService : Service() {
         // Helpers
         // ------------------------------------------------------------------
 
-        private fun parseBody(session: IHTTPSession): Map<String, Any> {
+        /**
+         * Parse the request body. Returns [BodyParseResult.Invalid] when the body
+         * is missing or is not a valid JSON object, instead of silently falling
+         * back to an empty map (which would hide malformed requests).
+         */
+        private fun parseBody(session: IHTTPSession): BodyParseResult {
             val files = mutableMapOf<String, String>()
             try {
                 session.parseBody(files)
-                val postData = files["postData"] ?: return emptyMap()
-                return gson.fromJson(postData, Map::class.java) as Map<String, Any>
+                val postData = files["postData"] ?: return BodyParseResult.Invalid
+                if (postData.isBlank()) return BodyParseResult.Invalid
+                val parsed = gson.fromJson(postData, Map::class.java)
+                if (parsed == null || parsed !is Map<*, *>) return BodyParseResult.Invalid
+                return BodyParseResult.Success(parsed as Map<String, Any>)
+            } catch (e: JsonSyntaxException) {
+                Log.e(TAG, "Failed to parse JSON body", e)
+                return BodyParseResult.Invalid
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to parse body", e)
-                return emptyMap()
+                return BodyParseResult.Invalid
             }
         }
 
@@ -549,16 +618,8 @@ class AutomationService : Service() {
             return (value as? Number)?.toInt() ?: default
         }
 
-        private fun parseInt(value: Any?, default: Int): Int {
-            return (value as? Number)?.toInt() ?: default
-        }
-
         private fun parseInt(str: String?, default: Int): Int {
             return str?.toInt().orElse(default)
-        }
-
-        private fun parseFloat(value: Any?, default: Float): Float {
-            return (value as? Number)?.toFloat() ?: default
         }
 
         private fun parseFloat(str: String?, default: Float): Float {
@@ -625,8 +686,7 @@ class AutomationService : Service() {
         private fun jsResultToAutomationResponse(result: JsResult): Response {
             return when (result) {
                 is JsResult.Error -> {
-                    val code = if (result.message.startsWith("TIMEOUT", ignoreCase = true)) "TIMEOUT" else "OPERATION_FAILED"
-                    automationErr(code, result.message)
+                    automationErr(mapJsErrorCode(result.code), result.message)
                 }
                 is JsResult.Value -> {
                     val map = result.value as? Map<*, *>
@@ -643,14 +703,6 @@ class AutomationService : Service() {
                     return automationOk(result.value)
                 }
                 is JsResult.Empty -> automationOk(emptyMap())
-            }
-        }
-
-        private fun jsResultToLegacyResponse(result: JsResult, defaultMessage: String): Response {
-            return when (result) {
-                is JsResult.Error -> errorResponse(result.message)
-                is JsResult.Value -> successResponse(defaultMessage, "result" to result.value)
-                is JsResult.Empty -> successResponse(defaultMessage, "result" to null)
             }
         }
 

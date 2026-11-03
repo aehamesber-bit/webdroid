@@ -176,6 +176,14 @@ HTTP server runs on `localhost:8765`. The current HTTP binding and
 authentication configuration are intentionally left untouched (handled in a
 separate stage).
 
+All automation endpoints return a standard envelope:
+
+Success: `{"success": true, "data": {...}, "error": null}`
+Error:   `{"success": false, "data": null, "error": {"code": "...", "message": "..."}}`
+
+Legacy endpoints (navigation, JS execution, info) keep their existing
+`{"success": true, "message": "...", ...}` shape for backward compatibility.
+
 ### Legacy endpoints (unchanged behavior)
 
 | Method | Endpoint | Body / Query |
@@ -194,9 +202,6 @@ separate stage).
 
 ### Automation endpoints (standard envelope)
 
-Success: `{"success": true, "data": {...}, "error": null}`
-Error:   `{"success": false, "data": null, "error": {"code": "...", "message": "..."}}`
-
 | Method | Endpoint | Body |
 |--------|----------|------|
 | POST | `/click` | `{"selector","index?","timeout?"}` |
@@ -209,6 +214,51 @@ Error:   `{"success": false, "data": null, "error": {"code": "...", "message": "
 | GET | `/forms` | — |
 | GET | `/page-state` | — |
 | GET | `/accessibility` | `depth?`, `limit?` |
+
+### Error codes
+
+| Code | Meaning |
+|------|---------|
+| `INVALID_SELECTOR` | CSS selector could not be parsed |
+| `ELEMENT_NOT_FOUND` | No element matched the selector / index |
+| `ELEMENT_NOT_INTERACTABLE` | Element disabled, hidden, read-only, type=file, or off-screen |
+| `INVALID_PARAMETER` | Bad request parameter (state, direction, timeout, etc.) |
+| `TIMEOUT` | Operation did not complete within the deadline |
+| `WEBVIEW_UNAVAILABLE` | WebView not ready or not laid out |
+| `JAVASCRIPT_ERROR` | JavaScript threw or failed to schedule |
+| `SCREENSHOT_FAILED` | Bitmap allocation or encoding failed |
+| `REQUEST_INTERRUPTED` | Thread was interrupted while waiting |
+| `NOT_FOUND` | Unknown endpoint |
+| `MISSING_PARAMETER` | Required body parameter absent |
+
+### Screenshot parameters
+
+`GET /screenshot?format=jpeg|png&quality=60&scale=0.5&max_width=720&max_height=1280`
+
+Defaults prioritize low memory: `format=jpeg`, `quality=75`, `scale=1.0`,
+`max_width=720`, `max_height=1280`. The response is Base64 by default for
+backward compatibility; the client decodes it to a file.
+
+The response now also reports the **actual** image dimensions:
+
+```json
+{
+  "success": true,
+  "data": {
+    "screenshot": "<base64>",
+    "format": "jpeg",
+    "quality": 75,
+    "dimensions": {"width": 720, "height": 1280},
+    "size_bytes": 42000,
+    "requested": {"max_width": 720, "max_height": 1280}
+  },
+  "error": null
+}
+```
+
+The WebView is never resized permanently for a screenshot. If the WebView has
+not been laid out (zero width/height), capture fails with `WEBVIEW_UNAVAILABLE`
+instead of fabricating dimensions.
 
 ### Example requests/responses
 
@@ -239,19 +289,27 @@ curl http://localhost:8765/page-state
 # -> {"success":true,"data":{"url":"...","title":"...","readyState":"complete",...},"error":null}
 ```
 
+
 ## Known limitations
 
 - No file upload, no popup windows/tabs, no downloads.
+- No real hover/pointer/keyboard events: clicks and typing use synthetic
+  `dispatchEvent` and the native `Element.click`/value setter. React-controlled
+  inputs are handled via the native value setter, but some custom frameworks
+  may still not react.
 - JavaScript-driven typing may not work with every site's custom input
-  framework (React controlled inputs are handled via the native value setter).
+  framework.
 - WebView-based rendering; sites that block WebView may require
   `browser_ua_google`.
 - The accessibility snapshot is a lightweight DOM-based approximation, not a
-  standards-complete accessibility tree.
+  standards-complete accessibility tree (no Android Accessibility Tree).
+- Screenshot capture requires the WebView to have been laid out (non-zero
+  dimensions); a hidden/not-yet-rendered WebView returns `WEBVIEW_UNAVAILABLE`.
 - Physical-device validation on a Samsung Galaxy A10 has not been performed in
   this environment; install and test on the target device before production use.
 - HTTP server security (binding/auth) is intentionally out of scope for this
   release and will be addressed separately.
+- No tabs, file upload, download management, or multi-window support.
 
 ## GitHub Actions APK download
 

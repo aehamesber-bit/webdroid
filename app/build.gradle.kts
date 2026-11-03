@@ -51,6 +51,10 @@ android {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.8.0")
-    implementation("org.nanohttpd:nanohttpd:2.3.1")
+    implementation("fi.iki.elonen.NanoHTTPD:2.3.1")
     implementation("com.google.code.gson:gson:2.10.1")
+
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlin:kotlin-test-junit:2.2.21")
+    testImplementation("org.jetbrains.kotlin:kotlin-test:2.2.21")
 }

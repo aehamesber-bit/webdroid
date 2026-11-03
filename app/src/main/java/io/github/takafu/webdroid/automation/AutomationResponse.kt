@@ -29,7 +29,7 @@ data class AutomationResponse<T>(
 sealed class JsResult {
     object Empty : JsResult()
     data class Value(val value: Any?) : JsResult()
-    data class Error(val message: String) : JsResult()
+    data class Error(val message: String, val code: BrowserAutomationManager.JsErrorCode = BrowserAutomationManager.JsErrorCode.JAVASCRIPT_ERROR) : JsResult()
 }
 
 /**
@@ -64,4 +64,19 @@ fun evalJsValue(gson: Gson, rawValue: Any?): Any? {
  */
 fun automationResponseToJson(gson: Gson, success: Boolean, data: Any?, error: AutomationError?): String {
     return gson.toJson(AutomationResponse(success, data, error))
+}
+
+/**
+ * Maps a [BrowserAutomationManager.JsErrorCode] to a stable API error code.
+ */
+internal fun jsErrorCodeToApiCode(code: BrowserAutomationManager.JsErrorCode): String {
+    return when (code) {
+        BrowserAutomationManager.JsErrorCode.WEBVIEW_UNAVAILABLE -> "WEBVIEW_UNAVAILABLE"
+        BrowserAutomationManager.JsErrorCode.TIMEOUT -> "TIMEOUT"
+        BrowserAutomationManager.JsErrorCode.INTERRUPTED -> "REQUEST_INTERRUPTED"
+        BrowserAutomationManager.JsErrorCode.INVALID_TIMEOUT -> "INVALID_PARAMETER"
+        BrowserAutomationManager.JsErrorCode.SCHEDULE_FAILED -> "JAVASCRIPT_ERROR"
+        BrowserAutomationManager.JsErrorCode.MAIN_THREAD_CALL -> "INVALID_PARAMETER"
+        BrowserAutomationManager.JsErrorCode.JAVASCRIPT_ERROR -> "JAVASCRIPT_ERROR"
+    }
 }

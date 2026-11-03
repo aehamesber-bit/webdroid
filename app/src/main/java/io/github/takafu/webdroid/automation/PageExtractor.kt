@@ -8,29 +8,58 @@ import kotlin.math.max
  * accessibility snapshot.
  *
  * Output is intentionally bounded (element limits, text truncation) so the AI
- * agent never receives an unbounded HTML document on a ~1.7 GB device.
+ * agent never receives an unbounded document on a ~1.7 GB device.
  */
 class PageExtractor(private val manager: BrowserAutomationManager) {
 
     private const val DEFAULT_LIMIT = 50
+    private const val ABSOLUTE_LIMIT = 500
     private const val TEXT_TRUNCATE = 2000
     private const val NAME_TRUNCATE = 120
+    private const val MAX_FORMS = 20
+    private const val MAX_FIELDS_PER_FORM = 50
+    private const val MAX_SELECT_OPTIONS = 30
+    private const val MAX_ACCESSIBILITY_DEPTH = 12
+    private const val MAX_ACCESSIBILITY_ELEMENTS = 300
 
+    // ------------------------------------------------------------------
+    // extract
+    // ------------------------------------------------------------------
+
+    /**
+     * Extract fields from elements matching [selector].
+     *
+     * [fields] is a list of {name, kind, attribute?} where kind is one of:
+     * text, innerHTML, outerHTML, attribute, link, value.
+     * When [all] is false only the first match is returned. Results and text
+     * lengths are capped.
+     */
     fun extract(webView: WebView?, selector: String, fields: List<*>, all: Boolean, limit: Int, timeoutMs: Long): JsResult {
-        if (webView == null) return JsResult.Error("WebView is not available")
+        if (webView == null) return JsResult.Error("WebView is not available", BrowserAutomationManager.JsErrorCode.WEBVIEW_UNAVAILABLE)
+        val safeFields = if (fields.size > ABSOLUTE_LIMIT) fields.subList(0, ABSOLUTE_LIMIT) else fields
+        val safeLimit = max(1, limit).coerceAtMost(ABSOLUTE_LIMIT)
+        val validKinds = setOf("text", "innerHTML", "outerHTML", "attribute", "link", "value")
         val params = mapOf(
             "selector" to selector,
-            "fields" to fields,
+            "fields" to safeFields,
             "all" to all,
-            "limit" to max(1, limit)
+            "limit" to safeLimit,
+            "validKinds" to validKinds.toList()
         )
         val script = """
             (function() {
                 var p = $paramsJson;
-                var els = document.querySelectorAll(p.selector || "");
+                var els;
+                try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
+                    return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
+                }
+                if (!els || els.length === 0) {
+                    return JSON.stringify({ok:true, data:{results: [], returned: 0, total: 0}});
+                }
                 var count = p.all === true ? els.length : Math.min(1, els.length);
                 count = Math.min(count, p.limit);
                 var fields = p.fields || [];
+                var validKinds = p.validKinds || [];
                 var out = [];
                 for (var k = 0; k < count; k++) {
                     var el = els[k];
@@ -40,25 +69,42 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         var name = field.name != null ? String(field.name) : ("field" + f);
                         var kind = field.kind || "text";
                         var val = null;
-                        if (kind === "text") { val = el.textContent || ""; }
-                        else if (kind === "innerHTML") { val = el.innerHTML || ""; }
-                        else if (kind === "outerHTML") { val = el.outerHTML || ""; }
-                        else if (kind === "attribute") { val = el.getAttribute(field.attribute || ""); }
-                        else if (kind === "link") { val = el.href || null; }
-                        else if (kind === "value") { val = el.value || null; }
+                        if (validKinds.indexOf(kind) < 0) {
+                            val = null;
+                        } else if (kind === "text") {
+                            val = el.textContent || "";
+                            if (typeof val === 'string') val = val.substring(0, 2000);
+                        } else if (kind === "innerHTML") {
+                            val = el.innerHTML || "";
+                            if (typeof val === 'string') val = val.substring(0, 4000);
+                        } else if (kind === "outerHTML") {
+                            val = el.outerHTML || "";
+                            if (typeof val === 'string') val = val.substring(0, 4000);
+                        } else if (kind === "attribute") {
+                            val = el.getAttribute(field.attribute || "") || null;
+                        } else if (kind === "link") {
+                            val = el.href || null;
+                        } else if (kind === "value") {
+                            val = el.value || null;
+                        }
                         fieldValues[name] = val;
                     }
                     out.push({index: k, fields: fieldValues});
                 }
-                return JSON.stringify({ok:true, data:{results: out, returned: out.length}});
+                return JSON.stringify({ok:true, data:{results: out, returned: out.length, total: els.length}});
             })()
         """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
+    // ------------------------------------------------------------------
+    // links
+    // ------------------------------------------------------------------
+
     fun links(webView: WebView?, limit: Int, timeoutMs: Long): JsResult {
-        if (webView == null) return JsResult.Error("WebView is not available")
-        val params = mapOf("limit" to max(0, limit))
+        if (webView == null) return JsResult.Error("WebView is not available", BrowserAutomationManager.JsErrorCode.WEBVIEW_UNAVAILABLE)
+        val safeLimit = max(0, limit).coerceAtMost(ABSOLUTE_LIMIT)
+        val params = mapOf("limit" to safeLimit)
         val script = """
             (function() {
                 var p = $paramsJson;
@@ -70,6 +116,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                     var a = els[k];
                     var abs = null;
                     try { abs = a.href; } catch (e) { abs = a.getAttribute('href') || null; }
+                    if (!abs) continue;
                     out.push({
                         text: (a.textContent || '').trim().substring(0, 200),
                         url: abs,
@@ -77,23 +124,32 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         target: a.target || null
                     });
                 }
-                return JSON.stringify({ok:true, data:{links: out, count: out.length}});
+                return JSON.stringify({ok:true, data:{links: out, count: out.length, total: els.length}});
             })()
         """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
+    // ------------------------------------------------------------------
+    // forms
+    // ------------------------------------------------------------------
+
     fun forms(webView: WebView?, timeoutMs: Long): JsResult {
-        if (webView == null) return JsResult.Error("WebView is not available")
+        if (webView == null) return JsResult.Error("WebView is not available", BrowserAutomationManager.JsErrorCode.WEBVIEW_UNAVAILABLE)
         val script = """
             (function() {
                 var els = document.querySelectorAll('form');
+                var maxForms = $MAX_FORMS;
+                var maxFields = $MAX_FIELDS_PER_FORM;
+                var maxOptions = $MAX_SELECT_OPTIONS;
                 var out = [];
-                for (var k = 0; k < els.length; k++) {
+                var formCount = Math.min(els.length, maxForms);
+                for (var k = 0; k < formCount; k++) {
                     var form = els[k];
-                    var inputs = [];
                     var allInputs = form.querySelectorAll('input, textarea, select, button');
-                    for (var i = 0; i < allInputs.length; i++) {
+                    var inputs = [];
+                    var fieldCount = Math.min(allInputs.length, maxFields);
+                    for (var i = 0; i < fieldCount; i++) {
                         var el = allInputs[i];
                         var tag = (el.tagName || '').toUpperCase();
                         var type = el.type || null;
@@ -103,14 +159,18 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         }
                         if (tag === 'SELECT') {
                             var opts = [];
-                            for (var j = 0; j < el.options.length; j++) {
-                                opts.push({value: el.options[j].value, text: el.options[j].text, selected: el.options[j].selected});
+                            var optCount = Math.min(el.options.length, maxOptions);
+                            for (var j = 0; j < optCount; j++) {
+                                var o = el.options[j];
+                                opts.push({value: o.value, text: (o.text || '').substring(0, 200), selected: o.selected === true});
                             }
-                            inputs.push({name: el.name || null, type: 'select', value: el.value || null, options: opts, placeholder: null});
+                            inputs.push({name: el.name || null, type: 'select', value: el.value || null, options: opts, placeholder: null, truncated: el.options.length > maxOptions});
                         } else if (tag === 'BUTTON') {
-                            inputs.push({name: el.name || null, type: 'button', value: el.value || null, text: (el.textContent || '').trim(), placeholder: null});
+                            inputs.push({name: el.name || null, type: 'button', value: el.value || null, text: (el.textContent || '').trim().substring(0, 200), placeholder: null});
                         } else {
-                            inputs.push({name: el.name || null, type: type, value: el.value || null, placeholder: el.placeholder || null});
+                            var val = el.value || null;
+                            if (typeof val === 'string') val = val.substring(0, 500);
+                            inputs.push({name: el.name || null, type: type, value: val, placeholder: el.placeholder || null});
                         }
                     }
                     out.push({
@@ -121,14 +181,18 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         inputs: inputs
                     });
                 }
-                return JSON.stringify({ok:true, data:{forms: out, count: out.length}});
+                return JSON.stringify({ok:true, data:{forms: out, count: out.length, total: els.length, truncated: els.length > maxForms}});
             })()
         """.trimIndent()
         return manager.evalJson(webView, script, timeoutMs)
     }
 
+    // ------------------------------------------------------------------
+    // pageState
+    // ------------------------------------------------------------------
+
     fun pageState(webView: WebView?, timeoutMs: Long): JsResult {
-        if (webView == null) return JsResult.Error("WebView is not available")
+        if (webView == null) return JsResult.Error("WebView is not available", BrowserAutomationManager.JsErrorCode.WEBVIEW_UNAVAILABLE)
         val script = """
             (function() {
                 var root = document.body || document.documentElement;
@@ -136,10 +200,11 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                 return JSON.stringify({
                     ok:true,
                     data:{
-                        url: location.href,
+                        url: location.href || "",
                         title: document.title || "",
-                        readyState: document.readyState,
+                        readyState: document.readyState || "",
                         textSummary: text.substring(0, $TEXT_TRUNCATE),
+                        textLength: text.length,
                         interactiveElements: document.querySelectorAll('button, input, select, textarea, a[href]').length,
                         linkCount: document.querySelectorAll('a[href]').length,
                         formCount: document.querySelectorAll('form').length,
@@ -147,6 +212,8 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         scrollY: window.scrollY,
                         viewportWidth: window.innerWidth,
                         viewportHeight: window.innerHeight,
+                        screenWidth: window.screen.width,
+                        screenHeight: window.screen.height,
                         userAgent: navigator.userAgent || ""
                     }
                 });
@@ -155,16 +222,24 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
         return manager.evalJson(webView, script, timeoutMs)
     }
 
+    // ------------------------------------------------------------------
+    // accessibility
+    // ------------------------------------------------------------------
+
     fun accessibility(webView: WebView?, depth: Int, limit: Int, timeoutMs: Long): JsResult {
-        if (webView == null) return JsResult.Error("WebView is not available")
-        val params = mapOf("depth" to max(1, depth), "limit" to max(1, limit))
+        if (webView == null) return JsResult.Error("WebView is not available", BrowserAutomationManager.JsErrorCode.WEBVIEW_UNAVAILABLE)
+        val safeDepth = max(1, depth).coerceAtMost(MAX_ACCESSIBILITY_DEPTH)
+        val safeLimit = max(1, limit).coerceAtMost(MAX_ACCESSIBILITY_ELEMENTS)
+        val params = mapOf("depth" to safeDepth, "limit" to safeLimit, "nameTruncate" to NAME_TRUNCATE)
         val script = """
             (function() {
                 var p = $paramsJson;
                 var maxDepth = p.depth;
                 var maxElements = p.limit;
+                var nameTruncate = p.nameTruncate;
                 var out = [];
                 var count = 0;
+                var seenIds = {};
                 function roleOf(el) {
                     var role = el.getAttribute('role');
                     if (role) return role;
@@ -183,23 +258,39 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         default: return tag.toLowerCase();
                     }
                 }
-                function nameOf(el) {
+                function accessibleName(el) {
                     var label = el.getAttribute('aria-label');
-                    if (label) return label;
+                    if (label != null && label !== '') return label;
                     var labelledby = el.getAttribute('aria-labelledby');
-                    if (labelledby) {
-                        var ref = document.getElementById(labelledby);
-                        if (ref) return (ref.textContent || '').trim();
+                    if (labelledby != null && labelledby !== '') {
+                        var refs = String(labelledby).trim().split(/\s+/);
+                        var names = [];
+                        for (var r = 0; r < refs.length; r++) {
+                            var ref = document.getElementById(refs[r]);
+                            if (ref) names.push((ref.textContent || '').trim());
+                        }
+                        if (names.length > 0) return names.join(' ');
                     }
+                    // Associated <label> for focusable fields.
                     var tag = (el.tagName || '').toUpperCase();
-                    if (tag === 'INPUT' || tag === 'TEXTAREA') return el.placeholder || el.name || '';
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') {
+                        var id = el.id;
+                        if (id) {
+                            var labelEl = document.querySelector('label[for="' + id + '"]');
+                            if (labelEl) return (labelEl.textContent || '').trim();
+                        }
+                        return el.placeholder || el.name || '';
+                    }
                     var text = (el.textContent || '').trim();
-                    return text.substring(0, $NAME_TRUNCATE);
+                    return text.substring(0, nameTruncate);
                 }
                 function walk(el, depth) {
                     if (count >= maxElements) return;
                     if (depth > maxDepth) return;
                     if (el.nodeType !== 1) return;
+                    var id = el.id;
+                    if (id && seenIds[id]) return;
+                    if (id) seenIds[id] = true;
                     var tag = (el.tagName || '').toUpperCase();
                     var interactive = tag === 'A' || tag === 'BUTTON' || tag === 'INPUT' || tag === 'TEXTAREA'
                         || tag === 'SELECT' || el.getAttribute('role') != null
@@ -213,7 +304,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                         out.push({
                             tag: tag.toLowerCase(),
                             role: roleOf(el),
-                            name: nameOf(el),
+                            name: accessibleName(el),
                             type: el.type || null,
                             id: el.id || null,
                             visible: visible,
@@ -226,7 +317,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                     }
                 }
                 walk(document.body, 0);
-                return JSON.stringify({ok:true, data:{elements: out, count: out.length, truncated: count >= maxElements}});
+                return JSON.stringify({ok:true, data:{elements: out, count: out.length, truncated: count >= maxElements, depth: maxDepth}});
             })()
         """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
