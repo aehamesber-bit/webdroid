@@ -1,33 +1,83 @@
 name: Build Android APK
+
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
+
 permissions:
   contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required to upload build artifacts
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: 34
+          build-tools: 34.0.0
+          platform-tools: true
+          accept-licenses: true
+
       - name: Set up Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
-      - name: Use Maven AAPT2 on GitHub runner
-        run: sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties
+          gradle-version: 8.9
+
+      - name: Remove Termux-only AAPT2 override
+        run: |
+          sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties
+          grep -n 'aapt2FromMavenOverride' gradle.properties || echo "Termux aapt2 override removed (not present)"
+
+      - name: Validate Gradle configuration
+        run: gradle help --no-daemon
+
       - name: Build debug APK
-        run: gradle assembleDebug
-      - name: Upload APK
+        run: gradle assembleDebug --no-daemon
+
+      - name: Generate CI release test keystore
+        run: |
+          keytool -genkeypair \
+            -alias webdroid \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -keystore release-keystore.jks \
+            -storepass android \
+            -keypass android \
+            -dname "CN=WebDroid Test,O=WebDroid,C=US"
+
+      - name: Build release APK
+        run: gradle assembleRelease --no-daemon \
+          -PRELEASE_STORE_PASSWORD=android \
+          -PRELEASE_KEY_PASSWORD=android
+
+      - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: webdroid-galaxy-a10-debug-apk
+          name: webdroid-galaxy-a10-debug
           path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
           retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload release APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webdroid-galaxy-a10-release
+          path: app/build/outputs/apk/release/app-release.apk
+          retention-days: 14
+          if-no-files-found: error
