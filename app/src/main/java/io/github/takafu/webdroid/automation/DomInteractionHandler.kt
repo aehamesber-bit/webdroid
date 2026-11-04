@@ -2,7 +2,6 @@ package io.github.takafu.webdroid.automation
 
 import android.webkit.WebView
 import kotlin.math.max
-import kotlin.math.minOf
 
 /**
  * DOM interaction operations: click, type, wait, find, scroll.
@@ -37,7 +36,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val params = mapOf("selector" to selector, "index" to safeIndex)
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var els;
                 try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
                     return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
@@ -47,7 +46,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 }
                 var i = typeof p.index === 'number' ? p.index : 0;
                 if (i < 0 || i >= els.length) {
-                    return JSON.stringify({ok:false, error:{code:"ELEMENT_NOT_FOUND", message:"Element index $i out of range (0-${els.length - 1})"}});
+                    return JSON.stringify({ok:false, error:{code:"ELEMENT_NOT_FOUND", message:"Element index " + i + " out of range (0-" + (els.length - 1) + ")"}});
                 }
                 var el = els[i];
                 if (!el) {
@@ -88,7 +87,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 }
                 return JSON.stringify({ok:true, data:{tag:(el.tagName || "").toUpperCase(), index:i, total:els.length, clicked:clicked, visible:visible}});
             })()
-        """.trimIndent().replace("""$paramsJson""", paramsJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", paramsJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
@@ -111,7 +110,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val params = mapOf("selector" to selector, "text" to text, "clear" to clear)
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var els;
                 try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
                     return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
@@ -175,7 +174,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                     try { element.dispatchEvent(new Event('change', {bubbles:true})); } catch (e) {}
                 }
             })()
-        """.trimIndent().replace("""$paramsJson""", paramsJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", paramsJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
@@ -202,13 +201,13 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val checkParams = mapOf("selector" to selector)
         val validateScript = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 try { document.querySelector(p.selector || ""); } catch (e) {
                     return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
                 }
                 return JSON.stringify({ok:true});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(checkParams))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(checkParams))
         val validation = manager.evalJson(webView, validateScript, minOf(2000L, timeoutMs))
         when (validation) {
             is JsResult.Error -> return validation
@@ -218,11 +217,15 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                     return validation
                 }
             }
+            is JsResult.Empty -> return JsResult.Error(
+                "Selector validation returned no result",
+                BrowserAutomationManager.JsErrorCode.JAVASCRIPT_ERROR
+            )
         }
 
         val checkScript = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var el = document.querySelector(p.selector || "");
                 var present = !!el;
                 var visible = false;
@@ -241,7 +244,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 else ok = !present || !visible;
                 return JSON.stringify({ok: ok, present: present, visible: visible});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(mapOf("selector" to selector, "state" to state)))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(mapOf("selector" to selector, "state" to state)))
 
         val start = System.currentTimeMillis()
         while (true) {
@@ -283,7 +286,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val params = mapOf("selector" to selector, "all" to all, "limit" to safeLimit)
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var els;
                 try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
                     return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
@@ -310,7 +313,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 }
                 return JSON.stringify({ok:true, data:{results: results, total: els.length, returned: results.length}});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
@@ -334,7 +337,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
         val params = mapOf("direction" to dir, "amount" to safeAmount, "selector" to selector)
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var dir = p.direction || "down";
                 var amount = typeof p.amount === 'number' ? p.amount : 300;
                 var dx = 0, dy = 0;
@@ -360,7 +363,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 var afterY = el != null ? el.scrollTop : window.scrollY;
                 return JSON.stringify({ok:true, data:{direction:dir, amount:amount, target: el != null ? "element" : "window", scrollX:afterX, scrollY:afterY, scrolledX:afterX - beforeX, scrolledY:afterY - beforeY}});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 }

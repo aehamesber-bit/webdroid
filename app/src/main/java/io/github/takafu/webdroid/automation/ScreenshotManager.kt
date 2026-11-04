@@ -8,7 +8,6 @@ import android.webkit.WebView
 import java.io.ByteArrayOutputStream
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.minOf
 
 data class ScreenshotOptions(
     val format: String = "jpeg",

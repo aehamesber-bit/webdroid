@@ -12,15 +12,17 @@ import kotlin.math.max
  */
 class PageExtractor(private val manager: BrowserAutomationManager) {
 
-    private const val DEFAULT_LIMIT = 50
-    private const val ABSOLUTE_LIMIT = 500
-    private const val TEXT_TRUNCATE = 2000
-    private const val NAME_TRUNCATE = 120
-    private const val MAX_FORMS = 20
-    private const val MAX_FIELDS_PER_FORM = 50
-    private const val MAX_SELECT_OPTIONS = 30
-    private const val MAX_ACCESSIBILITY_DEPTH = 12
-    private const val MAX_ACCESSIBILITY_ELEMENTS = 300
+    private companion object {
+        const val DEFAULT_LIMIT = 50
+        const val ABSOLUTE_LIMIT = 500
+        const val TEXT_TRUNCATE = 2000
+        const val NAME_TRUNCATE = 120
+        const val MAX_FORMS = 20
+        const val MAX_FIELDS_PER_FORM = 50
+        const val MAX_SELECT_OPTIONS = 30
+        const val MAX_ACCESSIBILITY_DEPTH = 12
+        const val MAX_ACCESSIBILITY_ELEMENTS = 300
+    }
 
     // ------------------------------------------------------------------
     // extract
@@ -48,7 +50,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
         )
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var els;
                 try { els = document.querySelectorAll(p.selector || ""); } catch (e) {
                     return JSON.stringify({ok:false, error:{code:"INVALID_SELECTOR", message:"Invalid CSS selector: " + String(p.selector || "")}});
@@ -115,7 +117,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                 }
                 return JSON.stringify({ok:true, data:{results: out, returned: out.length, total: els.length}});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
@@ -129,7 +131,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
         val params = mapOf("limit" to safeLimit)
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var lim = typeof p.limit === 'number' ? p.limit : 0;
                 var els = document.querySelectorAll('a[href]');
                 var count = lim > 0 ? Math.min(els.length, lim) : els.length;
@@ -148,7 +150,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                 }
                 return JSON.stringify({ok:true, data:{links: out, count: out.length, total: els.length}});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 
@@ -255,7 +257,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
         val params = mapOf("depth" to safeDepth, "limit" to safeLimit, "nameTruncate" to NAME_TRUNCATE)
         val script = """
             (function() {
-                var p = $paramsJson;
+                var p = ${'$'}paramsJson;
                 var maxDepth = p.depth;
                 var maxElements = p.limit;
                 var nameTruncate = p.nameTruncate;
@@ -341,7 +343,7 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                 walk(document.body, 0);
                 return JSON.stringify({ok:true, data:{elements: out, count: out.length, truncated: count >= maxElements, depth: maxDepth}});
             })()
-        """.trimIndent().replace("""$paramsJson""", manager.gson.toJson(params))
+        """.trimIndent().replace("${'$'}paramsJson", manager.gson.toJson(params))
         return manager.evalJson(webView, script, timeoutMs)
     }
 }

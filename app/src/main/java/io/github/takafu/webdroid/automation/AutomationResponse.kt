@@ -75,6 +75,7 @@ internal fun jsErrorCodeToApiCode(code: BrowserAutomationManager.JsErrorCode): S
         BrowserAutomationManager.JsErrorCode.TIMEOUT -> "TIMEOUT"
         BrowserAutomationManager.JsErrorCode.INTERRUPTED -> "REQUEST_INTERRUPTED"
         BrowserAutomationManager.JsErrorCode.INVALID_TIMEOUT -> "INVALID_PARAMETER"
+        BrowserAutomationManager.JsErrorCode.INVALID_PARAMETER -> "INVALID_PARAMETER"
         BrowserAutomationManager.JsErrorCode.SCHEDULE_FAILED -> "JAVASCRIPT_ERROR"
         BrowserAutomationManager.JsErrorCode.MAIN_THREAD_CALL -> "INVALID_PARAMETER"
         BrowserAutomationManager.JsErrorCode.JAVASCRIPT_ERROR -> "JAVASCRIPT_ERROR"

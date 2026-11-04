@@ -69,6 +69,7 @@ class AutomationResponseTest {
         assertEquals("REQUEST_INTERRUPTED", jsErrorCodeToApiCode(BrowserAutomationManager.JsErrorCode.INTERRUPTED))
         assertEquals("JAVASCRIPT_ERROR", jsErrorCodeToApiCode(BrowserAutomationManager.JsErrorCode.JAVASCRIPT_ERROR))
         assertEquals("INVALID_PARAMETER", jsErrorCodeToApiCode(BrowserAutomationManager.JsErrorCode.INVALID_TIMEOUT))
+        assertEquals("INVALID_PARAMETER", jsErrorCodeToApiCode(BrowserAutomationManager.JsErrorCode.INVALID_PARAMETER))
         assertEquals("INVALID_PARAMETER", jsErrorCodeToApiCode(BrowserAutomationManager.JsErrorCode.MAIN_THREAD_CALL))
         assertEquals("JAVASCRIPT_ERROR", jsErrorCodeToApiCode(BrowserAutomationManager.JsErrorCode.SCHEDULE_FAILED))
     }

@@ -57,7 +57,8 @@ class BrowserAutomationManager(
         TIMEOUT,
         INTERRUPTED,
         JAVASCRIPT_ERROR,
-        INVALID_TIMEOUT
+        INVALID_TIMEOUT,
+        INVALID_PARAMETER
     }
 
     /**
