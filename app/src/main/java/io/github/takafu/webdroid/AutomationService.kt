@@ -34,6 +34,7 @@ class AutomationService : Service() {
         private const val TAG = "AutomationService"
         private const val PORT = 8765
         private const val MAX_REQUEST_BODY_BYTES = 256 * 1024L
+        private const val DEFAULT_TIMEOUT_MS = 10000L
         private const val ACTION_STOP_SERVICES = "io.github.takafu.webdroid.STOP_SERVICES"
         private var server: AutomationServer? = null
         private val gson = Gson()
@@ -384,16 +385,15 @@ class AutomationService : Service() {
             if (captureError != null) {
                 return automationErr("SCREENSHOT_FAILED", captureError)
             }
-            if (screenshot == null) {
-                return automationErr("WEBVIEW_UNAVAILABLE", "WebView is not available")
-            }
+            val capturedScreenshot = screenshot
+                ?: return automationErr("WEBVIEW_UNAVAILABLE", "WebView is not available")
 
             return automationOk(mapOf(
-                "screenshot" to screenshot.base64,
-                "format" to screenshot.format,
-                "quality" to screenshot.quality,
-                "dimensions" to mapOf("width" to screenshot.width, "height" to screenshot.height),
-                "size_bytes" to screenshot.sizeBytes,
+                "screenshot" to capturedScreenshot.base64,
+                "format" to capturedScreenshot.format,
+                "quality" to capturedScreenshot.quality,
+                "dimensions" to mapOf("width" to capturedScreenshot.width, "height" to capturedScreenshot.height),
+                "size_bytes" to capturedScreenshot.sizeBytes,
                 "requested" to mapOf("max_width" to maxWidth, "max_height" to maxHeight)
             ))
         }
@@ -413,7 +413,7 @@ class AutomationService : Service() {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
             }
             val index = parseNumber(params["index"], 0).coerceAtLeast(0)
-            val timeout = parseTimeout(params, automation.DEFAULT_TIMEOUT_MS)
+            val timeout = parseTimeout(params, DEFAULT_TIMEOUT_MS)
             val result = dom.click(BrowserActivity.webView, selector, index, timeout)
             return jsResultToAutomationResponse(result)
         }
@@ -430,7 +430,7 @@ class AutomationService : Service() {
             }
             val text = params["text"] as? String ?: ""
             val clear = params["clear"] == true
-            val timeout = parseTimeout(params, automation.DEFAULT_TIMEOUT_MS)
+            val timeout = parseTimeout(params, DEFAULT_TIMEOUT_MS)
             val result = dom.type(BrowserActivity.webView, selector, text, clear, timeout)
             return jsResultToAutomationResponse(result)
         }
@@ -446,7 +446,7 @@ class AutomationService : Service() {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
             }
             val state = params["state"] as? String ?: "present"
-            val timeout = parseTimeout(params, automation.DEFAULT_TIMEOUT_MS).coerceAtLeast(1000).coerceAtMost(120000)
+            val timeout = parseTimeout(params, DEFAULT_TIMEOUT_MS).coerceAtLeast(1000).coerceAtMost(120000)
             val result = dom.wait(BrowserActivity.webView, selector, state, timeout)
             return jsResultToAutomationResponse(result)
         }
@@ -463,7 +463,7 @@ class AutomationService : Service() {
             }
             val all = params["all"] == true
             val limit = parseNumber(params["limit"], 50).coerceAtLeast(1).coerceAtMost(500)
-            val timeout = parseTimeout(params, automation.DEFAULT_TIMEOUT_MS)
+            val timeout = parseTimeout(params, DEFAULT_TIMEOUT_MS)
             val result = dom.find(BrowserActivity.webView, selector, all, limit.toInt(), timeout)
             return jsResultToAutomationResponse(result)
         }
@@ -478,10 +478,10 @@ class AutomationService : Service() {
             if (selector == null || selector.isBlank()) {
                 return automationErr("MISSING_PARAMETER", "Missing 'selector' parameter")
             }
-            val fields = params["fields"] as? List<*> ?: emptyList()
+            val fields = params["fields"] as? List<*> ?: emptyList<Any?>()
             val all = params["all"] == true
             val limit = parseNumber(params["limit"], 50).coerceAtLeast(1).coerceAtMost(500)
-            val timeout = parseTimeout(params, automation.DEFAULT_TIMEOUT_MS)
+            val timeout = parseTimeout(params, DEFAULT_TIMEOUT_MS)
             val result = pages.extract(BrowserActivity.webView, selector, fields, all, limit.toInt(), timeout)
             return jsResultToAutomationResponse(result)
         }
@@ -498,7 +498,7 @@ class AutomationService : Service() {
             }
             val amount = parseNumber(params["amount"], 300).coerceAtLeast(1)
             val selector = params["selector"] as? String
-            val timeout = parseTimeout(params, automation.DEFAULT_TIMEOUT_MS)
+            val timeout = parseTimeout(params, DEFAULT_TIMEOUT_MS)
             val result = dom.scroll(BrowserActivity.webView, direction, amount.toInt(), selector, timeout)
             return jsResultToAutomationResponse(result)
         }
