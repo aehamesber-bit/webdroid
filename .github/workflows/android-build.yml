@@ -66,9 +66,10 @@ jobs:
             -dname "CN=WebDroid Test,O=WebDroid,C=US"
 
       - name: Build release APK
-        run: gradle assembleRelease --no-daemon \
-          -PRELEASE_STORE_PASSWORD=android \
-          -PRELEASE_KEY_PASSWORD=android
+        run: |
+          gradle assembleRelease --no-daemon \
+            -PRELEASE_STORE_PASSWORD=android \
+            -PRELEASE_KEY_PASSWORD=android
 
       - name: Verify APK package, SDK range, ABI independence, and signatures
         run: |
