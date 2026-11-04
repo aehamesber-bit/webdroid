@@ -31,8 +31,8 @@ class AutomationResponseTest {
     fun `evalJsValue parses JSON object`() {
         val result = evalJsValue(gson, "{\"ok\":true,\"count\":3}")
         assertTrue(result is Map<*, *>)
-        assertEquals(true, (result as Map<*, *>)["ok"])
-        assertEquals(3L, (result as Map<*, *>)["count"])
+        assertEquals(true, (result as Map<*, *>) ["ok"])
+        assertEquals(3.0, (result as Map<*, *>) ["count"])
     }
 
     @Test
