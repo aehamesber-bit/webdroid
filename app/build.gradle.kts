@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.takafu.webdroid"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1"
+        versionCode = 3
+        versionName = "1.0.2"
     }
 
     // Release signing is intentionally CI-only. A throwaway test keystore is
@@ -34,7 +34,7 @@ android {
         release {
             isMinifyEnabled = false
             if (rootProject.file("release-keystore.jks").exists()) {
-                signingConfig = signingConfigs.byName("release")
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }
@@ -51,7 +51,7 @@ android {
 
 dependencies {
     implementation("androidx.webkit:webkit:1.8.0")
-    implementation("fi.iki.elonen.NanoHTTPD:2.3.1")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
     implementation("com.google.code.gson:gson:2.10.1")
 
     testImplementation("junit:junit:4.13.2")

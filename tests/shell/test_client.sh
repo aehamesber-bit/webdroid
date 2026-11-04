@@ -8,6 +8,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 CLIENT="$REPO_ROOT/client/browser.sh"
+WEB_DROID_TOKEN=""
 
 PASS=0
 FAIL=0
@@ -61,6 +62,42 @@ echo "== 2. Argument validation =="
 
 # require_number
 source "$CLIENT" >/dev/null 2>&1 || true
+
+echo "== 2a. API authentication setup =="
+if api_request GET /ping ""; then
+    echo "FAIL: api_request accepts a missing API token"
+    FAIL=$((FAIL + 1))
+else
+    assert_contains "missing API token gives setup guidance" "$RESPONSE_ERROR" "WEB_DROID_TOKEN is not set"
+fi
+WEB_DROID_TOKEN="test-token-for-shell-tests"
+mock_curl_dir="$(mktemp -d)"
+MOCK_CURL_AUTH_FILE="$mock_curl_dir/auth-seen"
+export MOCK_CURL_AUTH_FILE
+cat > "$mock_curl_dir/curl" <<'MOCK_CURL'
+#!/usr/bin/env bash
+output=""
+auth_seen=0
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        -o) output="$2"; shift 2 ;;
+        -H) [ "$2" = "Authorization: Bearer test-token-for-shell-tests" ] && auth_seen=1; shift 2 ;;
+        *) shift ;;
+    esac
+done
+printf '%s' '{"success":true}' > "$output"
+printf '%s' "$auth_seen" > "$MOCK_CURL_AUTH_FILE"
+printf '200'
+MOCK_CURL
+chmod +x "$mock_curl_dir/curl"
+if PATH="$mock_curl_dir:$PATH" api_request GET /ping ""; then
+    assert_eq "client sends the Bearer token header" "1" "$(cat "$MOCK_CURL_AUTH_FILE")"
+else
+    echo "FAIL: authenticated api_request returned an error"
+    FAIL=$((FAIL + 1))
+fi
+rm -rf "$mock_curl_dir"
+unset MOCK_CURL_AUTH_FILE
 
 # require_number accepts valid numbers
 for v in 5 5.0 0.5 .5 5. -3 -3.14 0 100; do
@@ -210,7 +247,7 @@ if ! browser_extract 'a' '[{"name":"t","kind":"text"}]' >/dev/null 2>&1; then ec
 if ! browser_scroll down 300 >/dev/null 2>&1; then echo "PASS: browser_scroll non-zero exit"; PASS=$((PASS+1)); else echo "FAIL: browser_scroll"; FAIL=$((FAIL+1)); fi
 
 echo "== 6. BASE_URL env override =="
-if [ "${BASE_URL:-http://localhost:8765}" = "http://localhost:8765" ]; then
+if [ "${BASE_URL:-http://127.0.0.1:8765}" = "http://127.0.0.1:8765" ]; then
     echo "PASS: BASE_URL default correct"
     PASS=$((PASS + 1))
 else

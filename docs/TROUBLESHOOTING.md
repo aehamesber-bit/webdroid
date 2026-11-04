@@ -8,7 +8,8 @@
 AAPT2 aapt2-8.7.3-12006047-linux Daemon: Unexpected error
 ```
 
-**Fix:** Add to `gradle.properties`:
+**Fix:** For a local Termux-only build, add this to
+`$HOME/.gradle/gradle.properties` (do not commit a machine-specific path):
 ```properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 ```
@@ -55,7 +56,8 @@ adb shell pidof io.github.takafu.webdroid
 # Start app if not running
 adb shell am start -n io.github.takafu.webdroid/.BrowserActivity
 sleep 3
-curl http://localhost:8765/ping
+read -rsp "WebDroid API token: " WEB_DROID_TOKEN; echo
+curl http://127.0.0.1:8765/ping -H "Authorization: Bearer $WEB_DROID_TOKEN"
 ```
 
 ### Empty Reply

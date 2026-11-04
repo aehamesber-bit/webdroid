@@ -33,17 +33,19 @@ class AutomationService : Service() {
     companion object {
         private const val TAG = "AutomationService"
         private const val PORT = 8765
+        private const val MAX_REQUEST_BODY_BYTES = 256 * 1024L
         private const val ACTION_STOP_SERVICES = "io.github.takafu.webdroid.STOP_SERVICES"
         private var server: AutomationServer? = null
         private val gson = Gson()
 
         // Event callbacks
         fun onPageEvent(event: String, data: String) {
-            Log.d(TAG, "Page event: $event - $data")
+            Log.d(TAG, "Page event: $event")
         }
 
         fun onConsoleMessage(message: String) {
-            Log.d(TAG, "Console: $message")
+            // Page console output can contain URLs, form data, or session tokens.
+            Log.d(TAG, "WebView console message received")
         }
 
         fun onProgressChanged(progress: Int) {
@@ -141,7 +143,7 @@ class AutomationService : Service() {
         server = null
     }
 
-    inner class AutomationServer : NanoHTTPD(PORT) {
+    inner class AutomationServer : NanoHTTPD("127.0.0.1", PORT) {
 
         private val automation = BrowserAutomationManager(AutomationService.gson) { action ->
             Handler(Looper.getMainLooper()).post(action)
@@ -154,7 +156,31 @@ class AutomationService : Service() {
             val uri = session.uri
             val method = session.method
 
-            Log.d(TAG, "Request: $method $uri")
+            val authorization = session.headers.entries
+                .firstOrNull { it.key.equals("authorization", ignoreCase = true) }
+                ?.value
+            val token = ApiSecurity.getOrCreateToken(this@AutomationService)
+            if (!ApiSecurity.isAuthorized(authorization, token)) {
+                return newFixedLengthResponse(
+                    Response.Status.UNAUTHORIZED,
+                    "application/json",
+                    """{"success":false,"error":{"code":"UNAUTHORIZED","message":"A valid Bearer token is required"}}"""
+                ).apply {
+                    addHeader("WWW-Authenticate", "Bearer realm=\"WebDroid\"")
+                    addHeader("Cache-Control", "no-store")
+                }
+            }
+            if ((uri == "/eval" || uri == "/execute") &&
+                !ApiSecurity.isUnsafeJavaScriptEnabled(this@AutomationService)
+            ) {
+                return newFixedLengthResponse(
+                    Response.Status.FORBIDDEN,
+                    "application/json",
+                    """{"success":false,"error":{"code":"UNSAFE_JS_DISABLED","message":"Enable privileged JavaScript in the app UI to use this endpoint"}}"""
+                ).apply { addHeader("Cache-Control", "no-store") }
+            }
+
+            Log.d(TAG, "Request: $method ${uri.substringBefore('?')}")
 
             return when {
                 uri == "/navigate" && method == Method.POST -> handleNavigate(session)
@@ -277,7 +303,28 @@ class AutomationService : Service() {
 
         private fun handleGetHtml(): Response {
             val webView = BrowserActivity.webView ?: return successResponse("HTML retrieved", "html" to null)
-            val result = automation.evalJson(webView, "document.documentElement.outerHTML", 5000)
+            val script = """
+                (function() {
+                    var root = document.documentElement.cloneNode(true);
+                    function scrub(node) {
+                        if (node.nodeType === 1 && node.tagName === 'INPUT' && String(node.type || '').toLowerCase() === 'password') {
+                            node.value = '';
+                            node.removeAttribute('value');
+                        }
+                        var inputs = node.querySelectorAll ? node.querySelectorAll('input') : [];
+                        for (var i = 0; i < inputs.length; i++) {
+                            if (String(inputs[i].type || '').toLowerCase() === 'password') {
+                                inputs[i].value = '';
+                                inputs[i].removeAttribute('value');
+                            }
+                        }
+                    }
+                    scrub(root);
+                    var html = root.outerHTML || '';
+                    return html.substring(0, 100000);
+                })()
+            """.trimIndent()
+            val result = automation.evalJson(webView, script, 5000)
             return when (result) {
                 is JsResult.Error -> automationErr(jsErrorCodeToApiCode(result.code), result.message)
                 is JsResult.Value -> successResponse("HTML retrieved", "html" to result.value)
@@ -462,7 +509,7 @@ class AutomationService : Service() {
 
         private fun handleLinks(session: IHTTPSession): Response {
             val query = session.getParms()
-            val limit = parseInt(query["limit"], 0).coerceAtLeast(0).coerceAtMost(500)
+            val limit = parseInt(query["limit"], 100).coerceIn(1, 200)
             val result = pages.links(BrowserActivity.webView, limit, 5000)
             return jsResultToAutomationResponse(result)
         }
@@ -592,6 +639,12 @@ class AutomationService : Service() {
          * back to an empty map (which would hide malformed requests).
          */
         private fun parseBody(session: IHTTPSession): BodyParseResult {
+            val contentLength = session.headers.entries
+                .firstOrNull { it.key.equals("content-length", ignoreCase = true) }
+                ?.value?.toLongOrNull()
+            if (contentLength == null || contentLength < 0 || contentLength > MAX_REQUEST_BODY_BYTES) {
+                return BodyParseResult.Invalid
+            }
             val files = mutableMapOf<String, String>()
             try {
                 session.parseBody(files)

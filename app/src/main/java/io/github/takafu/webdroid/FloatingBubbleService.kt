@@ -1379,7 +1379,7 @@ class FloatingBubbleService : Service() {
 
                 override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {
                     super.doUpdateVisitedHistory(view, url, isReload)
-                    android.util.Log.d("FloatingBubble", "doUpdateVisitedHistory: url=$url, isReload=$isReload")
+                    android.util.Log.d("FloatingBubble", "WebView navigation history updated; reload=$isReload")
                     // Re-detect login form on URL change (for SPA-style navigation)
                     android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                         android.util.Log.d("FloatingBubble", "doUpdateVisitedHistory: detecting login form")

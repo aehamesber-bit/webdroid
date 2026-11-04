@@ -39,8 +39,8 @@ class BrowserAutomationManager(
         const val POLL_INTERVAL_MS: Long = 200L
         private const val MIN_TIMEOUT_MS: Long = 500L
         private const val MAX_TIMEOUT_MS: Long = 300000L
-        // Cap concurrent JavaScript operations to protect the WebView and RAM.
-        private const val MAX_CONCURRENT_JS = 4
+        // Keep concurrency deliberately low for memory-constrained phones.
+        private const val MAX_CONCURRENT_JS = 2
     }
 
     // Bounded concurrency: acquire before running JS, release when the operation

@@ -121,9 +121,13 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 }
                 var el = els[0];
                 var tag = (el.tagName || "").toUpperCase();
+                var isPassword = tag === "INPUT" && String(el.type || "").toLowerCase() === "password";
                 var editable = tag === "INPUT" || tag === "TEXTAREA" || el.isContentEditable === true;
                 if (!editable) {
                     return JSON.stringify({ok:false, error:{code:"ELEMENT_NOT_INTERACTABLE", message:"Element is not an input, textarea, or contenteditable"}});
+                }
+                if (el.readOnly === true) {
+                    return JSON.stringify({ok:false, error:{code:"ELEMENT_NOT_INTERACTABLE", message:"Element is read-only"}});
                 }
                 try {
                     if (el.disabled === true) {
@@ -165,7 +169,7 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                     dispatch(el);
                 }
                 var finalValue = el.isContentEditable === true ? el.textContent : el.value;
-                return JSON.stringify({ok:true, data:{tag:tag, value:finalValue, cleared:cleared, set:setOk}});
+                return JSON.stringify({ok:true, data:{tag:tag, value:isPassword ? null : finalValue, sensitive:isPassword, cleared:cleared, set:setOk}});
                 function dispatch(element) {
                     try { element.dispatchEvent(new Event('input', {bubbles:true})); } catch (e) {}
                     try { element.dispatchEvent(new Event('change', {bubbles:true})); } catch (e) {}
@@ -290,12 +294,15 @@ class DomInteractionHandler(private val manager: BrowserAutomationManager) {
                 for (var k = 0; k < count; k++) {
                     var el = els[k];
                     var rect = el.getBoundingClientRect ? el.getBoundingClientRect() : {};
+                    var tag = (el.tagName || "").toLowerCase();
+                    var isPassword = tag === "input" && String(el.type || "").toLowerCase() === "password";
                     results.push({
                         index: k,
-                        tag: (el.tagName || "").toLowerCase(),
+                        tag: tag,
                         text: (el.textContent || "").trim().substring(0, 200),
                         href: el.href || null,
-                        value: el.value || null,
+                        value: isPassword ? null : (el.value || null),
+                        sensitive: isPassword,
                         type: el.type || null,
                         id: el.id || null,
                         visible: el.offsetParent !== null || (rect.width > 0 || rect.height > 0)

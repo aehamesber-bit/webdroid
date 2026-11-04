@@ -39,13 +39,11 @@ jobs:
         with:
           gradle-version: 8.9
 
-      - name: Remove Termux-only AAPT2 override
-        run: |
-          sed -i '/^android\.aapt2FromMavenOverride=/d' gradle.properties
-          grep -n 'aapt2FromMavenOverride' gradle.properties || echo "Termux aapt2 override removed (not present)"
-
       - name: Validate Gradle configuration
         run: gradle help --no-daemon
+
+      - name: Run Kotlin unit tests
+        run: gradle testDebugUnitTest --no-daemon
 
       - name: Run shell client tests
         run: |
@@ -71,6 +69,25 @@ jobs:
         run: gradle assembleRelease --no-daemon \
           -PRELEASE_STORE_PASSWORD=android \
           -PRELEASE_KEY_PASSWORD=android
+
+      - name: Verify APK package, SDK range, ABI independence, and signatures
+        run: |
+          set -euo pipefail
+          for apk in app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/release/app-release.apk; do
+            echo "=== $apk ==="
+            test -s "$apk"
+            "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk" | tee "${apk}.badging.txt"
+            grep -F "package: name='io.github.takafu.webdroid'" "${apk}.badging.txt"
+            grep -F "sdkVersion:'24'" "${apk}.badging.txt"
+            grep -F "targetSdkVersion:'34'" "${apk}.badging.txt"
+            if unzip -l "$apk" | grep -E 'lib/[^ ]+\.so$'; then
+              echo "Native libraries present; inspect ABI coverage above."
+            else
+              echo "No native libraries: app is ABI-independent Java/Kotlin."
+            fi
+            "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose "$apk"
+            sha256sum "$apk"
+          done
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4

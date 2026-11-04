@@ -61,8 +61,28 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                 var fields = p.fields || [];
                 var validKinds = p.validKinds || [];
                 var out = [];
+                function isPasswordInput(node) {
+                    return !!node && node.nodeType === 1 && node.tagName === 'INPUT'
+                        && String(node.type || '').toLowerCase() === 'password';
+                }
+                function safeMarkup(node, outer) {
+                    var copy = node.cloneNode(true);
+                    if (isPasswordInput(copy)) {
+                        copy.value = '';
+                        copy.removeAttribute('value');
+                    }
+                    var inputs = copy.querySelectorAll ? copy.querySelectorAll('input') : [];
+                    for (var j = 0; j < inputs.length; j++) {
+                        if (isPasswordInput(inputs[j])) {
+                            inputs[j].value = '';
+                            inputs[j].removeAttribute('value');
+                        }
+                    }
+                    return outer ? (copy.outerHTML || '') : (copy.innerHTML || '');
+                }
                 for (var k = 0; k < count; k++) {
                     var el = els[k];
+                    var isPassword = isPasswordInput(el);
                     var fieldValues = {};
                     for (var f = 0; f < fields.length; f++) {
                         var field = fields[f] || {};
@@ -75,17 +95,19 @@ class PageExtractor(private val manager: BrowserAutomationManager) {
                             val = el.textContent || "";
                             if (typeof val === 'string') val = val.substring(0, 2000);
                         } else if (kind === "innerHTML") {
-                            val = el.innerHTML || "";
+                            val = safeMarkup(el, false);
                             if (typeof val === 'string') val = val.substring(0, 4000);
                         } else if (kind === "outerHTML") {
-                            val = el.outerHTML || "";
+                            val = safeMarkup(el, true);
                             if (typeof val === 'string') val = val.substring(0, 4000);
                         } else if (kind === "attribute") {
-                            val = el.getAttribute(field.attribute || "") || null;
+                            var attributeName = String(field.attribute || '');
+                            val = isPassword && attributeName.toLowerCase() === 'value'
+                                ? null : (el.getAttribute(attributeName) || null);
                         } else if (kind === "link") {
                             val = el.href || null;
                         } else if (kind === "value") {
-                            val = el.value || null;
+                            val = isPassword ? null : (el.value || null);
                         }
                         fieldValues[name] = val;
                     }

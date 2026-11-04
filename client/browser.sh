@@ -7,7 +7,8 @@
 # Unicode text, quotes, backslashes and multiline content are transmitted
 # safely. No Python, Node.js, Playwright or Chromium is required.
 
-BASE_URL="${BASE_URL:-http://localhost:8765}"
+BASE_URL="${BASE_URL:-http://127.0.0.1:8765}"
+WEB_DROID_TOKEN="${WEB_DROID_TOKEN:-}"
 # Set WEB_DROID_RAW=1 to make functions print the raw JSON response body.
 WEB_DROID_RAW="${WEB_DROID_RAW:-0}"
 
@@ -39,10 +40,14 @@ browser_require_deps() {
 api_request() {
     local method="$1"; local path="$2"; local body="$3"; shift 3
     RESPONSE_BODY=""; RESPONSE_CODE=""; RESPONSE_ERROR=""
+    if [ -z "$WEB_DROID_TOKEN" ]; then
+        RESPONSE_ERROR="WEB_DROID_TOKEN is not set; copy the API token from the WebDroid app first"
+        return 1
+    fi
     local tmp code
     tmp=$(mktemp) || { RESPONSE_ERROR="failed to create temp file"; return 1; }
     local tmp_err="$tmp.err"
-    local curl_args=(-sS -o "$tmp" -w "%{http_code}" --connect-timeout 10 --max-time 300 "$@")
+    local curl_args=(-sS -o "$tmp" -w "%{http_code}" --connect-timeout 10 --max-time 300 -H "Authorization: Bearer $WEB_DROID_TOKEN" "$@")
     if [ -n "$body" ]; then
         code=$(curl "${curl_args[@]}" -X "$method" -H "Content-Type: application/json" -d "$body" "$BASE_URL$path" 2>"$tmp_err") \
             || { RESPONSE_ERROR="connection failed: $BASE_URL$path"; rm -f "$tmp" "$tmp_err"; return 1; }
@@ -484,7 +489,9 @@ Other:
 
 Environment:
   WEB_DROID_RAW=1             Print raw JSON response bodies
-  BASE_URL                    Override server URL (default: http://localhost:8765)
+  WEB_DROID_TOKEN             Required Bearer token copied from WebDroid app
+  BASE_URL                    Override URL (default: http://127.0.0.1:8765)
+  /eval and /execute require privileged JavaScript to be enabled in the app UI.
 
 Examples:
   browser_goto "https://example.com"

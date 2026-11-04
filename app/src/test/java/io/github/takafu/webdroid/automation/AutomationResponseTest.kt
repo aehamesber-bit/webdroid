@@ -1,6 +1,6 @@
 package io.github.takafu.webdroid.automation
 
-import com.google.code.gson.Gson
+import com.google.gson.Gson
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue

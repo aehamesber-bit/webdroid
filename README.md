@@ -18,7 +18,7 @@ Termux on resource-constrained devices such as the Samsung Galaxy A10 (Android
 ## Features
 
 - **Floating Bubble UI** — draggable overlay window with resize support
-- **HTTP API** — control the browser from Termux on `localhost:8765`
+- **HTTP API** — control the browser from Termux on `127.0.0.1:8765` with a private Bearer token
 - **Desktop / Google-login / Custom UA modes**
 - **JavaScript execution** — run scripts and return results
 - **Memory-efficient screenshot** — actual WebView dimensions, JPEG/PNG,
@@ -32,7 +32,7 @@ Termux on resource-constrained devices such as the Samsung Galaxy A10 (Android
 ```
 Termux (curl / browser.sh)
       |
-      | HTTP  (localhost:8765, no auth binding changed)
+      | HTTP  (127.0.0.1:8765, Bearer token required)
       v
 AutomationService (NanoHTTPD)
       |
@@ -84,15 +84,16 @@ adb shell am start -n io.github.takafu.webdroid/.BrowserActivity
 
 ```bash
 source ~/webdroid/client/browser.sh
-
+read -rsp "WebDroid API token: " WEB_DROID_TOKEN; echo; export WEB_DROID_TOKEN
 browser_goto "https://example.com"
 browser_title
 browser_screenshot screenshot.png
-browser_eval "document.title"
+# /eval requires the explicit privileged-JavaScript opt-in in the app UI
 ```
 
-Set `WEB_DROID_RAW=1` in the environment to make client functions print the raw
-JSON response body (useful for AI agents).
+Copy the API token from the WebDroid app's startup screen. Keep it private; the
+Termux client requires `WEB_DROID_TOKEN` for every request. Set `WEB_DROID_RAW=1`
+to print raw JSON response bodies (useful for AI agents).
 
 ## AI Agent Example
 
@@ -100,6 +101,7 @@ The shell client is small enough to be called directly by an external AI agent:
 
 ```bash
 source ~/webdroid/client/browser.sh
+export WEB_DROID_TOKEN="<paste the token copied from the app>"
 
 # 1. Navigate to a website
 browser_goto "https://example.com"
@@ -160,7 +162,8 @@ arguments and reports connection / HTTP / invalid-JSON errors.
 | `browser_ua / ua_default / ua_google / ua_custom <ua>` | User-agent modes |
 | `browser_help` | Show help |
 
-Environment: `WEB_DROID_RAW=1` (raw JSON), `BASE_URL` (override server URL).
+Environment: `WEB_DROID_TOKEN` (required), `WEB_DROID_RAW=1` (raw JSON), and
+`BASE_URL` (override; defaults to `http://127.0.0.1:8765`).
 
 ### Screenshot parameters
 
@@ -172,9 +175,18 @@ backward compatibility; the client decodes it to a PNG file.
 
 ## API Endpoints
 
-HTTP server runs on `localhost:8765`. The current HTTP binding and
-authentication configuration are intentionally left untouched (handled in a
-separate stage).
+The HTTP server binds only to IPv4 loopback at `127.0.0.1:8765`; every endpoint,
+including `/ping`, requires `Authorization: Bearer <token>`. The app generates a
+random per-install token and stores it in private app preferences. This keeps
+the service off Wi-Fi/LAN and rejects other local callers without the token.
+Treat the token as a password. The server does not use TLS because it is bound
+to loopback; do not change `BASE_URL` to a remote or untrusted network.
+
+`/eval` and `/execute` are disabled by default. Enable **privileged JavaScript**
+from the app UI only when needed; arbitrary scripts can read passwords and
+other page data. `/type`, `/find`, `/extract`, and `/html` redact password-field
+values. That redaction is not a security boundary for explicitly enabled
+arbitrary JavaScript.
 
 All automation endpoints return a standard envelope:
 
@@ -230,6 +242,8 @@ Legacy endpoints (navigation, JS execution, info) keep their existing
 | `REQUEST_INTERRUPTED` | Thread was interrupted while waiting |
 | `NOT_FOUND` | Unknown endpoint |
 | `MISSING_PARAMETER` | Required body parameter absent |
+| `UNAUTHORIZED` | Missing or invalid API Bearer token |
+| `UNSAFE_JS_DISABLED` | `/eval` or `/execute` is disabled in app settings |
 
 ### Screenshot parameters
 
@@ -264,7 +278,8 @@ instead of fabricating dimensions.
 
 Click:
 ```bash
-curl -X POST http://localhost:8765/click \
+curl -X POST http://127.0.0.1:8765/click \
+  -H "Authorization: Bearer $WEB_DROID_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"selector":"input[type=submit]","timeout":10000}'
 # -> {"success":true,"data":{"tag":"INPUT","index":0,"total":1,"clicked":true},"error":null}
@@ -272,20 +287,22 @@ curl -X POST http://localhost:8765/click \
 
 Type:
 ```bash
-curl -X POST http://localhost:8765/type \
+curl -X POST http://127.0.0.1:8765/type \
+  -H "Authorization: Bearer $WEB_DROID_TOKEN" \
   -d '{"selector":"input[name=q]","text":"webdroid","clear":true}'
-# -> {"success":true,"data":{"tag":"INPUT","value":"webdroid","cleared":true},"error":null}
+# -> {"success":true,"data":{"tag":"INPUT","value":"webdroid","sensitive":false,"cleared":true},"error":null}
 ```
 
 Wait:
 ```bash
-curl -X POST http://localhost:8765/wait \
+curl -X POST http://127.0.0.1:8765/wait \
+  -H "Authorization: Bearer $WEB_DROID_TOKEN" \
   -d '{"selector":".result","state":"present","timeout":15000}'
 ```
 
 Page state (compact, AI-agent friendly):
 ```bash
-curl http://localhost:8765/page-state
+curl http://127.0.0.1:8765/page-state -H "Authorization: Bearer $WEB_DROID_TOKEN"
 # -> {"success":true,"data":{"url":"...","title":"...","readyState":"complete",...},"error":null}
 ```
 
@@ -307,8 +324,8 @@ curl http://localhost:8765/page-state
   dimensions); a hidden/not-yet-rendered WebView returns `WEBVIEW_UNAVAILABLE`.
 - Physical-device validation on a Samsung Galaxy A10 has not been performed in
   this environment; install and test on the target device before production use.
-- HTTP server security (binding/auth) is intentionally out of scope for this
-  release and will be addressed separately.
+- Arbitrary JavaScript is privileged and can read page secrets; keep it disabled
+  unless needed, and never share the API token with an untrusted agent/process.
 - No tabs, file upload, download management, or multi-window support.
 
 ## GitHub Actions APK download
@@ -326,13 +343,13 @@ curl http://localhost:8765/page-state
 - Gradle 8.9, Android Gradle Plugin 8.7.3, Kotlin 2.2.21, JDK 17
 - compileSdk 34, minSdk 24, targetSdk 34, Java 17 bytecode
 - Dependencies: NanoHTTPD 2.3.1, Gson 2.10.1, AndroidX WebKit 1.8.0
-- GitHub Actions builds on `ubuntu-latest` and triggers on push/PR to `main`
-  plus manual `workflow_dispatch`.
+- GitHub Actions builds on `ubuntu-latest` and triggers on push to `main` or
+  `kilo/**`, pull requests to `main`, and manual `workflow_dispatch`.
 
-The `gradle.properties` Termux-specific AAPT2 override
-(`android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2`)
-is stripped by the CI workflow so GitHub-hosted builds use the Maven AAPT2;
-local Termux builds are unaffected.
+The shared Gradle configuration contains no machine-specific Termux AAPT2 path.
+The CI workflow runs Kotlin unit tests and verifies package ID, min/target SDK,
+APK signatures, checksums, and whether native libraries are present before
+uploading artifacts. CI signing uses a temporary test key, not a production key.
 
 ## Tech Stack
 

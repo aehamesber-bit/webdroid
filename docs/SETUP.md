@@ -110,6 +110,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb shell am start -n io.github.takafu.webdroid/.BrowserActivity
 
 source client/browser.sh
+read -rsp "WebDroid API token: " WEB_DROID_TOKEN; echo; export WEB_DROID_TOKEN
 browser_ping
 browser_goto "https://example.com"
 browser_title
@@ -121,7 +122,8 @@ browser_title
 
 ### AAPT2 Error
 
-Add to `gradle.properties`:
+If a local Termux build needs system AAPT2, put this in
+`$HOME/.gradle/gradle.properties` (not the shared project file):
 ```properties
 android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 ```
@@ -135,5 +137,6 @@ Use PC for initial setup (USB + `adb tcpip 5555`).
 ```bash
 adb shell am start -n io.github.takafu.webdroid/.BrowserActivity
 sleep 3
-curl http://localhost:8765/ping
+read -rsp "WebDroid API token: " WEB_DROID_TOKEN; echo
+curl http://127.0.0.1:8765/ping -H "Authorization: Bearer $WEB_DROID_TOKEN"
 ```

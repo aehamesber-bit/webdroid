@@ -2,7 +2,21 @@
 
 ## Base URL
 
-`http://localhost:8765`
+`http://127.0.0.1:8765`
+
+All endpoints, including `/ping`, require `Authorization: Bearer <token>`. Copy
+the per-install token from the WebDroid app and set it in Termux:
+
+```bash
+read -rsp "WebDroid API token: " WEB_DROID_TOKEN; echo; export WEB_DROID_TOKEN
+```
+
+The server binds only to IPv4 loopback, not Wi-Fi/LAN. Keep the token private.
+Request bodies are limited to 256 KiB. `/eval` and `/execute` return
+`UNSAFE_JS_DISABLED` until privileged JavaScript is explicitly enabled in the
+app UI. Arbitrary JavaScript can read page passwords and other secrets; password
+field values are redacted by the structured `type`, `find`, `extract`, and `/html`
+endpoints, but that does not constrain explicitly enabled JavaScript.
 
 ## Response Format
 
@@ -41,6 +55,8 @@ Legacy navigation/info endpoints keep the older `{"success": true, "message": ".
 | `REQUEST_INTERRUPTED` | Thread was interrupted while waiting |
 | `NOT_FOUND` | Unknown endpoint |
 | `MISSING_PARAMETER` | Required body parameter absent |
+| `UNAUTHORIZED` | Missing or invalid Bearer token |
+| `UNSAFE_JS_DISABLED` | Privileged JavaScript is disabled in the app UI |
 
 ---
 
@@ -51,7 +67,8 @@ Legacy navigation/info endpoints keep the older `{"success": true, "message": ".
 Navigate to a URL.
 
 ```bash
-curl -X POST http://localhost:8765/navigate \
+curl -X POST http://127.0.0.1:8765/navigate \
+  -H "Authorization: Bearer $WEB_DROID_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://example.com"}'
 ```
@@ -77,7 +94,7 @@ Reload the page.
 Get current URL.
 
 ```bash
-curl http://localhost:8765/url
+curl http://127.0.0.1:8765/url -H "Authorization: Bearer $WEB_DROID_TOKEN"
 # {"success":true,"url":"https://example.com/"}
 ```
 
@@ -94,7 +111,7 @@ Get full page HTML (JSON escaped).
 Get screenshot as Base64 PNG.
 
 ```bash
-curl -s http://localhost:8765/screenshot | jq -r '.screenshot' | base64 -d > screenshot.png
+curl -s http://127.0.0.1:8765/screenshot -H "Authorization: Bearer $WEB_DROID_TOKEN" | jq -r '.screenshot' | base64 -d > screenshot.png
 ```
 
 ---
@@ -103,20 +120,24 @@ curl -s http://localhost:8765/screenshot | jq -r '.screenshot' | base64 -d > scr
 
 ### POST /execute
 
-Run JavaScript without return value (fast).
+Run JavaScript without return value (fast). Requires privileged JavaScript to
+be enabled in the app UI; this gives the caller access to page secrets.
 
 ```bash
-curl -X POST http://localhost:8765/execute \
+curl -X POST http://127.0.0.1:8765/execute \
+  -H "Authorization: Bearer $WEB_DROID_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"script":"console.log(\"Hello\")"}'
 ```
 
 ### POST /eval
 
-Run JavaScript and get result (5s timeout).
+Run JavaScript and get result (5s timeout). Requires privileged JavaScript to
+be enabled in the app UI; treat this as full access to page data.
 
 ```bash
-curl -X POST http://localhost:8765/eval \
+curl -X POST http://127.0.0.1:8765/eval \
+  -H "Authorization: Bearer $WEB_DROID_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"script":"document.title"}'
 ```
@@ -130,7 +151,7 @@ curl -X POST http://localhost:8765/eval \
 Health check.
 
 ```bash
-curl http://localhost:8765/ping
+curl http://127.0.0.1:8765/ping -H "Authorization: Bearer $WEB_DROID_TOKEN"
 # {"success":true,"message":"pong","status":"ok"}
 ```
 
@@ -140,6 +161,7 @@ curl http://localhost:8765/ping
 
 ```bash
 source ~/webdroid/client/browser.sh
+export WEB_DROID_TOKEN="<paste the token copied from the app>"
 
 browser_goto <url>          # Navigate
 browser_back                # Go back
