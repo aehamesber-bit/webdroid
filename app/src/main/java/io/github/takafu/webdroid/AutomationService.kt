@@ -672,11 +672,11 @@ class AutomationService : Service() {
         }
 
         private fun parseInt(str: String?, default: Int): Int {
-            return str?.toInt().orElse(default)
+            return str?.toIntOrNull() ?: default
         }
 
         private fun parseFloat(str: String?, default: Float): Float {
-            return str?.toFloat().orElse(default)
+            return str?.toFloatOrNull() ?: default
         }
 
         // Legacy response shape (preserved for existing endpoints).
@@ -712,7 +712,7 @@ class AutomationService : Service() {
             return newFixedLengthResponse(
                 Response.Status.OK,
                 "application/json",
-                AutomationResponse.automationResponseToJson(AutomationService.gson, true, data, null)
+                automationResponseToJson(AutomationService.gson, true, data, null)
             )
         }
 
@@ -720,7 +720,7 @@ class AutomationService : Service() {
             return newFixedLengthResponse(
                 status,
                 "application/json",
-                AutomationResponse.automationResponseToJson(AutomationService.gson, false, null, AutomationError(code, message))
+                automationResponseToJson(AutomationService.gson, false, null, AutomationError(code, message))
             )
         }
 
@@ -739,7 +739,7 @@ class AutomationService : Service() {
         private fun jsResultToAutomationResponse(result: JsResult): Response {
             return when (result) {
                 is JsResult.Error -> {
-                    automationErr(mapJsErrorCode(result.code), result.message)
+                    automationErr(jsErrorCodeToApiCode(result.code), result.message)
                 }
                 is JsResult.Value -> {
                     val map = result.value as? Map<*, *>
@@ -755,7 +755,7 @@ class AutomationService : Service() {
                     }
                     return automationOk(result.value)
                 }
-                is JsResult.Empty -> automationOk(emptyMap())
+                is JsResult.Empty -> automationOk(emptyMap<String, Any?>())
             }
         }
 
